@@ -61,7 +61,7 @@ with st.form("dodaj_formularz", clear_on_submit=True):
 
 st.markdown("---")
 
-# --- 3. USUWANIE TOWARU ---
+# --- 3. USUWANIE TOWARU (POPRAWIONE) ---
 st.header("❌ Usuń towar")
 
 if st.session_state['magazyn']:
@@ -72,9 +72,15 @@ if st.session_state['magazyn']:
         placeholder="Wybierz towar..."
     )
 
-    if st.button("Usuń wybrany towar") and towar_do_usuniecia:
-        st.session_state['magazyn'].remove(towar_do_usuniecia)
-        st.error(f"Usunięto: **{towar_do_usuniecia}**")
-        st.rerun()
-    elif st.button("Usuń wybrany towar") and not towar_do_usuniecia:
-        st.warning("Proszę wybrać towar do usunięcia.")
+    # Użycie JEDNEGO przycisku z unikalnym kluczem
+    przycisk_usun = st.button("Usuń wybrany towar", key="usun_przycisk")
+
+    if przycisk_usun:
+        if towar_do_usuniecia:
+            st.session_state['magazyn'].remove(towar_do_usuniecia)
+            st.error(f"Usunięto: **{towar_do_usuniecia}**")
+            st.rerun()
+        else:
+            st.warning("Proszę wybrać towar do usunięcia.")
+else:
+    st.write("Brak towarów w magazynie.")
