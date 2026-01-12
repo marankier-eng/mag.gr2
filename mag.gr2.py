@@ -1,165 +1,203 @@
 import streamlit as st
 import pandas as pd
-from supabase import create_client, Client
+from supabase import create_client
 import time
 
-# --- KONFIGURACJA STRONY ---
-st.set_page_config(page_title="Magazyn w Chmurze", page_icon="☁️", layout="wide")
+# --- 1. KONFIGURACJA STRONY ---
+st.set_page_config(page_title="System Produktów", page_icon="🏭", layout="wide")
 
-# --- POŁĄCZENIE Z SUPABASE ---
-# Używamy @st.cache_resource, żeby nie łączyć się przy każdym kliknięciu
+# =========================================================
+# ⚙️ KONFIGURACJA NAZW TABEL I KOLUMN (Zmień to tutaj!)
+# =========================================================
+
+# Jak nazywają się Twoje tabele w Supabase?
+TABELA_PRODUKTY = "produkty"
+TABELA_KATEGORIE = "kategorie"
+
+# Jak nazywają się kolumny w tabeli 'produkty'?
+COL_PROD_ID = "id"
+COL_PROD_NAZWA = "nazwa"      # np. nazwa, name, produkt
+COL_PROD_ILOSC = "ilosc"      # np. ilosc, quantity, stan
+COL_PROD_KAT = "kategoria"    # Kolumna łącząca z kategorią (tekst)
+
+# Jak nazywa się kolumna z nazwą w tabeli 'kategorie'?
+COL_KAT_NAZWA = "nazwa"       # np. nazwa, title, name
+
+# =========================================================
+
+# --- 2. POŁĄCZENIE Z SUPABASE ---
 @st.cache_resource
 def init_connection():
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+    try:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+        return create_client(url, key)
+    except Exception:
+        return None
 
 supabase = init_connection()
 
-# --- FUNKCJE BAZY DANYCH ---
-def get_data():
-    """Pobiera wszystkie dane z tabeli 'magazyn'"""
-    response = supabase.table("magazyn").select("*").order("id").execute()
-    return pd.DataFrame(response.data)
+if not supabase:
+    st.error("❌ Brak pliku .streamlit/secrets.toml lub błędne klucze!")
+    st.stop()
 
-def add_item(produkt, kategoria, ilosc):
-    """Dodaje nowy wiersz"""
-    data = {"produkt": produkt, "kategoria": kategoria, "ilosc": ilosc}
-    supabase.table("magazyn").insert(data).execute()
+# --- 3. FUNKCJE DO POBIERANIA DANYCH ---
 
-def delete_item(item_id):
-    """Usuwa wiersz po ID"""
-    supabase.table("magazyn").delete().eq("id", item_id).execute()
+def get_categories():
+    """Pobiera listę kategorii z Twojej tabeli"""
+    try:
+        # Pobieramy tylko nazwę kategorii
+        response = supabase.table(TABELA_KATEGORIE).select(COL_KAT_NAZWA).execute()
+        # Wyciągamy samą listę nazw (np. ['Narzędzia', 'BHP'])
+        return [item[COL_KAT_NAZWA] for item in response.data]
+    except Exception as e:
+        st.error(f"Błąd pobierania kategorii. Sprawdź czy tabela '{TABELA_KATEGORIE}' i kolumna '{COL_KAT_NAZWA}' istnieją.")
+        st.error(e)
+        return []
 
-def update_item(item_id, column, value):
-    """Aktualizuje konkretną komórkę"""
-    supabase.table("magazyn").update({column: value}).eq("id", item_id).execute()
+def get_products():
+    """Pobiera listę produktów"""
+    try:
+        response = supabase.table(TABELA_PRODUKTY).select("*").order(COL_PROD_ID).execute()
+        return pd.DataFrame(response.data)
+    except Exception as e:
+        st.error(f"Błąd pobierania produktów. Sprawdź czy tabela '{TABELA_PRODUKTY}' istnieje.")
+        st.error(e)
+        return pd.DataFrame()
 
-# --- CSS: ŚNIEG I WYGLĄD ---
-snow_css = """
+def add_product(nazwa, kategoria, ilosc):
+    """Dodaje produkt do tabeli produkty"""
+    data = {
+        COL_PROD_NAZWA: nazwa,
+        COL_PROD_KAT: kategoria,
+        COL_PROD_ILOSC: ilosc
+    }
+    supabase.table(TABELA_PRODUKTY).insert(data).execute()
+
+def delete_product(item_id):
+    supabase.table(TABELA_PRODUKTY).delete().eq(COL_PROD_ID, item_id).execute()
+
+def update_product(item_id, updates):
+    supabase.table(TABELA_PRODUKTY).update(updates).eq(COL_PROD_ID, item_id).execute()
+
+# --- 4. CSS (Wygląd i Śnieg) ---
+st.markdown("""
 <style>
-    .santa-fixed-image { position: fixed; top: 10px; right: 10px; z-index: 1000; width: 120px; }
-    .snowflake { color: #fff; font-size: 1em; text-shadow: 0 0 1px #000; }
-    @-webkit-keyframes snowflakes-fall{0%{top:-10%}100%{top:100%}}
-    @-webkit-keyframes snowflakes-shake{0%{-webkit-transform:translateX(0px)}50%{-webkit-transform:translateX(80px)}100%{-webkit-transform:translateX(0px)}}
-    .snowflake{position:fixed;top:-10%;z-index:9999;-webkit-user-select:none;user-select:none;cursor:default;
-    animation-name:snowflakes-fall,snowflakes-shake;animation-duration:10s,3s;animation-timing-function:linear,ease-in-out;animation-iteration-count:infinite,infinite;animation-play-state:running,running}
-    .snowflake:nth-of-type(1){left:10%;animation-delay:1s,1s} .snowflake:nth-of-type(2){left:20%;animation-delay:6s,.5s}
-    .snowflake:nth-of-type(3){left:30%;animation-delay:4s,2s} .snowflake:nth-of-type(4){left:40%;animation-delay:2s,2s}
-    .snowflake:nth-of-type(5){left:50%;animation-delay:8s,3s} .snowflake:nth-of-type(6){left:60%;animation-delay:6s,2s}
+    .santa-fixed-image { position: fixed; top: 10px; right: 10px; z-index: 1000; width: 100px; }
+    /* Ukrycie indeksu w tabelach */
+    thead tr th:first-child {display:none}
+    tbody th {display:none}
 </style>
-<div class="snowflakes" aria-hidden="true">
-  <div class="snowflake">❅</div><div class="snowflake">❆</div><div class="snowflake">❄</div>
-  <div class="snowflake">❅</div><div class="snowflake">❆</div><div class="snowflake">❄</div>
-</div>
 <div class="santa-fixed-image">
-    <img src="https://i.imgur.com/39J6i7Z.png" style="width: 100%; height: 100%; object-fit: contain;">
+    <img src="https://i.imgur.com/39J6i7Z.png" style="width: 100%;">
 </div>
-"""
-st.markdown(snow_css, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# --- SIDEBAR: DODAWANIE TOWARU ---
+# --- 5. LOGIKA APLIKACJI ---
+
+st.title(f"🏭 Zarządzanie: {TABELA_PRODUKTY}")
+
+# A. POBIERANIE DANYCH
+lista_kategorii = get_categories()
+df = get_products()
+
+# --- SIDEBAR: DODAWANIE ---
 with st.sidebar:
-    st.header("➕ Dodaj do Bazy")
+    st.header("➕ Dodaj Produkt")
+    
+    if not lista_kategorii:
+        st.warning(f"⚠️ Tabela '{TABELA_KATEGORIE}' jest pusta lub źle skonfigurowana. Dodaj tam najpierw jakieś kategorie w Supabase!")
+        active_categories = ["Ogólne"] # Zabezpieczenie
+    else:
+        active_categories = lista_kategorii
+
     with st.form("add_form", clear_on_submit=True):
         new_name = st.text_input("Nazwa produktu")
-        new_cat = st.selectbox("Kategoria", ["Narzędzia", "Elektronika", "Akcesoria", "BHP", "Inne"])
+        # Selectbox teraz pobiera dane z Twojej tabeli KATEGORIE
+        new_cat = st.selectbox("Kategoria", active_categories)
         new_qty = st.number_input("Ilość", min_value=1, value=1)
-        submitted = st.form_submit_button("Zapisz w chmurze ☁️")
         
-        if submitted and new_name:
-            try:
-                add_item(new_name, new_cat, new_qty)
-                st.success("Zapisano w Supabase!")
-                time.sleep(1) # Czas na przeładowanie bazy
-                st.rerun()
-            except Exception as e:
-                st.error(f"Błąd zapisu: {e}")
+        if st.form_submit_button("Zapisz w bazie"):
+            if new_name:
+                try:
+                    add_product(new_name, new_cat, new_qty)
+                    st.toast("Produkt dodany!", icon="✅")
+                    time.sleep(0.5)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Nie udało się zapisać: {e}")
+            else:
+                st.warning("Podaj nazwę produktu.")
 
-# --- GŁÓWNA STRONA ---
-st.title("🏭 Magazyn Online (Supabase)")
-
-# 1. POBRANIE DANYCH Z BAZY
-df = get_data()
-
-# --- PANEL STATYSTYK ---
+# --- DASHBOARD ---
 if not df.empty:
-    col1, col2, col3 = st.columns(3)
-    col1.metric("📦 Łącznie sztuk", df['ilosc'].sum())
-    col2.metric("📝 Unikalne produkty", len(df))
-    col3.metric("🏆 Top Kategoria", df['kategoria'].mode()[0])
+    col1, col2 = st.columns(2)
+    # Używamy nazw kolumn ze zmiennych
+    col1.metric("📦 Wszystkie produkty", len(df))
+    col2.metric("🔢 Łączna ilość sztuk", df[COL_PROD_ILOSC].sum() if COL_PROD_ILOSC in df.columns else 0)
 else:
-    st.info("Baza jest pusta. Dodaj coś w panelu bocznym!")
+    st.info("Brak produktów w bazie.")
 
-st.markdown("---")
+st.divider()
 
-# --- EDYCJA DANYCH ---
-st.subheader("📋 Stan magazynowy")
+# --- EDYCJA TABELI ---
+st.subheader("📋 Lista Produktów")
 
 if not df.empty:
-    # Dodajemy kolumnę "Usuń" do DataFrame, żeby obsłużyć to w edytorze
-    df["Usuń"] = False
+    # Dodajemy kolumnę do usuwania
+    df["delete"] = False
 
-    # Konfiguracja edytora
+    # Konfiguracja wyświetlania
+    column_settings = {
+        COL_PROD_ID: st.column_config.NumberColumn("ID", disabled=True, width="small"),
+        COL_PROD_NAZWA: st.column_config.TextColumn("Nazwa"),
+        COL_PROD_ILOSC: st.column_config.NumberColumn("Ilość", min_value=0),
+        COL_PROD_KAT: st.column_config.SelectboxColumn("Kategoria", options=active_categories),
+        "delete": st.column_config.CheckboxColumn("Usuń?", default=False)
+    }
+
     edited_df = st.data_editor(
         df,
-        column_config={
-            "id": st.column_config.NumberColumn("ID", disabled=True, width="small"), # ID nie edytujemy!
-            "produkt": "Nazwa",
-            "kategoria": st.column_config.SelectboxColumn("Kategoria", options=["Narzędzia", "Elektronika", "Akcesoria", "BHP", "Inne"]),
-            "ilosc": st.column_config.NumberColumn("Ilość", min_value=0, format="%d 📦"),
-            "Usuń": st.column_config.CheckboxColumn("Zaznacz aby usunąć", default=False)
-        },
+        column_config=column_settings,
         hide_index=True,
         use_container_width=True,
-        key="editor" # Klucz jest ważny do śledzenia zmian
+        key="editor"
     )
 
-    # --- LOGIKA ZAPISYWANIA ZMIAN ---
-    # Porównujemy oryginalne dane z edytowanymi, aby wykryć zmiany
-    # UWAGA: W prostym podejściu robimy to przyciskiem "Zatwierdź zmiany" dla bezpieczeństwa
-
-    col_btn1, col_btn2 = st.columns([1, 4])
-    
-    if col_btn1.button("💾 Zatwierdź zmiany", type="primary"):
-        changes_count = 0
+    # Przycisk zapisu
+    if st.button("💾 Zapisz zmiany w bazie", type="primary"):
+        changes = 0
         
-        # 1. Sprawdzanie usunięć
-        rows_to_delete = edited_df[edited_df["Usuń"] == True]
-        for index, row in rows_to_delete.iterrows():
-            delete_item(row['id'])
-            changes_count += 1
-            
-        # 2. Sprawdzanie edycji (tylko jeśli nie usunięto)
-        # Iterujemy po wierszach, które NIE są zaznaczone do usunięcia
-        rows_to_update = edited_df[edited_df["Usuń"] == False]
+        # 1. Usuwanie
+        to_delete = edited_df[edited_df["delete"] == True]
+        for idx, row in to_delete.iterrows():
+            delete_product(row[COL_PROD_ID])
+            changes += 1
         
-        # Aby nie aktualizować wszystkiego (co jest wolne), można by porównywać wiersze.
-        # Dla uproszczenia w małej aplikacji: aktualizujemy tylko zmienione ilości/kategorie
-        # Porównujemy z oryginałem 'df' po ID.
+        # 2. Aktualizacja (tylko to co nie usunięte)
+        to_update = edited_df[edited_df["delete"] == False]
+        for idx, row in to_update.iterrows():
+            # Znajdź oryginał
+            orig = df[df[COL_PROD_ID] == row[COL_PROD_ID]].iloc[0]
+            
+            updates = {}
+            # Sprawdzamy czy zmieniła się ilość
+            if row[COL_PROD_ILOSC] != orig[COL_PROD_ILOSC]:
+                updates[COL_PROD_ILOSC] = row[COL_PROD_ILOSC]
+            # Sprawdzamy czy zmieniła się kategoria
+            if row[COL_PROD_KAT] != orig[COL_PROD_KAT]:
+                updates[COL_PROD_KAT] = row[COL_PROD_KAT]
+            # Sprawdzamy czy zmieniła się nazwa
+            if row[COL_PROD_NAZWA] != orig[COL_PROD_NAZWA]:
+                updates[COL_PROD_NAZWA] = row[COL_PROD_NAZWA]
+                
+            if updates:
+                update_product(row[COL_PROD_ID], updates)
+                changes += 1
         
-        for index, row in rows_to_update.iterrows():
-            original_row = df[df['id'] == row['id']].iloc[0]
-            
-            if row['ilosc'] != original_row['ilosc']:
-                update_item(row['id'], 'ilosc', row['ilosc'])
-                changes_count += 1
-            
-            if row['kategoria'] != original_row['kategoria']:
-                update_item(row['id'], 'kategoria', row['kategoria'])
-                changes_count += 1
-
-        if changes_count > 0:
-            st.success(f"Zaktualizowano {changes_count} rekordów w bazie!")
+        if changes > 0:
+            st.success(f"Zaktualizowano rekordów: {changes}")
             time.sleep(1)
             st.rerun()
         else:
-            st.info("Nie wykryto zmian do zapisania.")
-
-st.markdown("---")
-
-# --- WYKRESY ---
-if not df.empty:
-    st.subheader("📊 Analiza")
-    chart_data = df.groupby("kategoria")["ilosc"].sum()
-    st.bar_chart(chart_data)
+            st.info("Brak zmian do zapisania.")
