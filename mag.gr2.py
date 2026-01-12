@@ -14,13 +14,9 @@ def init_connection():
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
-try:
-    supabase = init_connection()
-except FileNotFoundError:
-    st.error("Brakuje pliku .streamlit/secrets.toml z kluczami API!")
-    st.stop()
+supabase = init_connection()
 
-# --- FUNKCJE BAZY DANYCH (CRUD) ---
+# --- FUNKCJE BAZY DANYCH ---
 def get_data():
     """Pobiera wszystkie dane z tabeli 'magazyn'"""
     response = supabase.table("magazyn").select("*").order("id").execute()
@@ -35,9 +31,9 @@ def delete_item(item_id):
     """Usuwa wiersz po ID"""
     supabase.table("magazyn").delete().eq("id", item_id).execute()
 
-def update_item(item_id, updates):
-    """Aktualizuje konkretny wiersz (słownik zmian)"""
-    supabase.table("magazyn").update(updates).eq("id", item_id).execute()
+def update_item(item_id, column, value):
+    """Aktualizuje konkretną komórkę"""
+    supabase.table("magazyn").update({column: value}).eq("id", item_id).execute()
 
 # --- CSS: ŚNIEG I WYGLĄD ---
 snow_css = """
@@ -67,4 +63,103 @@ with st.sidebar:
     st.header("➕ Dodaj do Bazy")
     with st.form("add_form", clear_on_submit=True):
         new_name = st.text_input("Nazwa produktu")
-        new_cat = st.selectbox
+        new_cat = st.selectbox("Kategoria", ["Narzędzia", "Elektronika", "Akcesoria", "BHP", "Inne"])
+        new_qty = st.number_input("Ilość", min_value=1, value=1)
+        submitted = st.form_submit_button("Zapisz w chmurze ☁️")
+        
+        if submitted and new_name:
+            try:
+                add_item(new_name, new_cat, new_qty)
+                st.success("Zapisano w Supabase!")
+                time.sleep(1) # Czas na przeładowanie bazy
+                st.rerun()
+            except Exception as e:
+                st.error(f"Błąd zapisu: {e}")
+
+# --- GŁÓWNA STRONA ---
+st.title("🏭 Magazyn Online (Supabase)")
+
+# 1. POBRANIE DANYCH Z BAZY
+df = get_data()
+
+# --- PANEL STATYSTYK ---
+if not df.empty:
+    col1, col2, col3 = st.columns(3)
+    col1.metric("📦 Łącznie sztuk", df['ilosc'].sum())
+    col2.metric("📝 Unikalne produkty", len(df))
+    col3.metric("🏆 Top Kategoria", df['kategoria'].mode()[0])
+else:
+    st.info("Baza jest pusta. Dodaj coś w panelu bocznym!")
+
+st.markdown("---")
+
+# --- EDYCJA DANYCH ---
+st.subheader("📋 Stan magazynowy")
+
+if not df.empty:
+    # Dodajemy kolumnę "Usuń" do DataFrame, żeby obsłużyć to w edytorze
+    df["Usuń"] = False
+
+    # Konfiguracja edytora
+    edited_df = st.data_editor(
+        df,
+        column_config={
+            "id": st.column_config.NumberColumn("ID", disabled=True, width="small"), # ID nie edytujemy!
+            "produkt": "Nazwa",
+            "kategoria": st.column_config.SelectboxColumn("Kategoria", options=["Narzędzia", "Elektronika", "Akcesoria", "BHP", "Inne"]),
+            "ilosc": st.column_config.NumberColumn("Ilość", min_value=0, format="%d 📦"),
+            "Usuń": st.column_config.CheckboxColumn("Zaznacz aby usunąć", default=False)
+        },
+        hide_index=True,
+        use_container_width=True,
+        key="editor" # Klucz jest ważny do śledzenia zmian
+    )
+
+    # --- LOGIKA ZAPISYWANIA ZMIAN ---
+    # Porównujemy oryginalne dane z edytowanymi, aby wykryć zmiany
+    # UWAGA: W prostym podejściu robimy to przyciskiem "Zatwierdź zmiany" dla bezpieczeństwa
+
+    col_btn1, col_btn2 = st.columns([1, 4])
+    
+    if col_btn1.button("💾 Zatwierdź zmiany", type="primary"):
+        changes_count = 0
+        
+        # 1. Sprawdzanie usunięć
+        rows_to_delete = edited_df[edited_df["Usuń"] == True]
+        for index, row in rows_to_delete.iterrows():
+            delete_item(row['id'])
+            changes_count += 1
+            
+        # 2. Sprawdzanie edycji (tylko jeśli nie usunięto)
+        # Iterujemy po wierszach, które NIE są zaznaczone do usunięcia
+        rows_to_update = edited_df[edited_df["Usuń"] == False]
+        
+        # Aby nie aktualizować wszystkiego (co jest wolne), można by porównywać wiersze.
+        # Dla uproszczenia w małej aplikacji: aktualizujemy tylko zmienione ilości/kategorie
+        # Porównujemy z oryginałem 'df' po ID.
+        
+        for index, row in rows_to_update.iterrows():
+            original_row = df[df['id'] == row['id']].iloc[0]
+            
+            if row['ilosc'] != original_row['ilosc']:
+                update_item(row['id'], 'ilosc', row['ilosc'])
+                changes_count += 1
+            
+            if row['kategoria'] != original_row['kategoria']:
+                update_item(row['id'], 'kategoria', row['kategoria'])
+                changes_count += 1
+
+        if changes_count > 0:
+            st.success(f"Zaktualizowano {changes_count} rekordów w bazie!")
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.info("Nie wykryto zmian do zapisania.")
+
+st.markdown("---")
+
+# --- WYKRESY ---
+if not df.empty:
+    st.subheader("📊 Analiza")
+    chart_data = df.groupby("kategoria")["ilosc"].sum()
+    st.bar_chart(chart_data)
