@@ -1,135 +1,170 @@
 import streamlit as st
+import pandas as pd
 import time
 
 # --- KONFIGURACJA STRONY ---
-st.set_page_config(page_title="Świąteczny Magazyn", page_icon="📦")
+st.set_page_config(page_title="Magazyn PRO", page_icon="📦", layout="wide")
 
-# --- KOD CSS DLA MIKOŁAJA NA RENIFERZE ---
-MIKOLAJ_URL = "https://i.imgur.com/39J6i7Z.png"
-
-christmas_css = f"""
+# --- KOD CSS: CIĄGŁY ŚNIEG + MIKOŁAJ ---
+# Ten blok CSS tworzy animację padającego śniegu w tle
+snow_css = """
 <style>
-    .santa-fixed-image {{
+    /* Mikołaj */
+    .santa-fixed-image {
         position: fixed;
-        top: 20px;
-        right: 20px;
+        top: 10px;
+        right: 10px;
         z-index: 1000;
-        width: 150px;
+        width: 120px;
         height: auto;
-    }}
-    /* Dodatkowy styl dla metryk */
-    div[data-testid="stMetric"] {{
-        background-color: #f0f2f6;
-        padding: 10px;
-        border-radius: 10px;
-        border: 1px solid #e0e0e0;
-    }}
+    }
+    
+    /* Animacja śniegu */
+    .snowflake {
+        color: #fff;
+        font-size: 1em;
+        font-family: Arial;
+        text-shadow: 0 0 1px #000;
+    }
+    @-webkit-keyframes snowflakes-fall{0%{top:-10%}100%{top:100%}}
+    @-webkit-keyframes snowflakes-shake{0%{-webkit-transform:translateX(0px);transform:translateX(0px)}50%{-webkit-transform:translateX(80px);transform:translateX(80px)}100%{-webkit-transform:translateX(0px);transform:translateX(0px)}}
+    .snowflake{position:fixed;top:-10%;z-index:9999;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none;cursor:default;-webkit-animation-name:snowflakes-fall,snowflakes-shake;-webkit-animation-duration:10s,3s;-webkit-animation-timing-function:linear,ease-in-out;-webkit-animation-iteration-count:infinite,infinite;-webkit-animation-play-state:running,running;animation-name:snowflakes-fall,snowflakes-shake;animation-duration:10s,3s;animation-timing-function:linear,ease-in-out;animation-iteration-count:infinite,infinite;animation-play-state:running,running}
+    .snowflake:nth-of-type(0){left:1%;-webkit-animation-delay:0s,0s;animation-delay:0s,0s}
+    .snowflake:nth-of-type(1){left:10%;-webkit-animation-delay:1s,1s;animation-delay:1s,1s}
+    .snowflake:nth-of-type(2){left:20%;-webkit-animation-delay:6s,.5s;animation-delay:6s,.5s}
+    .snowflake:nth-of-type(3){left:30%;-webkit-animation-delay:4s,2s;animation-delay:4s,2s}
+    .snowflake:nth-of-type(4){left:40%;-webkit-animation-delay:2s,2s;animation-delay:2s,2s}
+    .snowflake:nth-of-type(5){left:50%;-webkit-animation-delay:8s,3s;animation-delay:8s,3s}
+    .snowflake:nth-of-type(6){left:60%;-webkit-animation-delay:6s,2s;animation-delay:6s,2s}
+    .snowflake:nth-of-type(7){left:70%;-webkit-animation-delay:2.5s,1s;animation-delay:2.5s,1s}
+    .snowflake:nth-of-type(8){left:80%;-webkit-animation-delay:1s,0s;animation-delay:1s,0s}
+    .snowflake:nth-of-type(9){left:90%;-webkit-animation-delay:3s,1.5s;animation-delay:3s,1.5s}
 </style>
+
+<div class="snowflakes" aria-hidden="true">
+  <div class="snowflake">❅</div>
+  <div class="snowflake">❅</div>
+  <div class="snowflake">❆</div>
+  <div class="snowflake">❄</div>
+  <div class="snowflake">❅</div>
+  <div class="snowflake">❆</div>
+  <div class="snowflake">❄</div>
+  <div class="snowflake">❅</div>
+  <div class="snowflake">❆</div>
+  <div class="snowflake">❄</div>
+</div>
+
 <div class="santa-fixed-image">
-    <img src="{MIKOLAJ_URL}" style="width: 100%; height: 100%; object-fit: contain;">
+    <img src="https://i.imgur.com/39J6i7Z.png" style="width: 100%; height: 100%; object-fit: contain;">
 </div>
 """
-st.markdown(christmas_css, unsafe_allow_html=True)
+st.markdown(snow_css, unsafe_allow_html=True)
 
-# 📦 Tytuł i opis aplikacji
-st.title("📦 Świąteczny Magazyn")
-st.caption("Aplikacja do zarządzania listą towarów w pamięci sesji.")
+# --- INICJALIZACJA DANYCH (Teraz używamy Pandas DataFrame w pamięci) ---
+if 'data' not in st.session_state:
+    # Tworzymy przykładowe dane jako listę słowników
+    st.session_state['data'] = [
+        {"Produkt": "Wiertarka", "Kategoria": "Narzędzia", "Ilość": 5, "Zaznacz": False},
+        {"Produkt": "Śruby M8", "Kategoria": "Akcesoria", "Ilość": 200, "Zaznacz": False},
+        {"Produkt": "Kask ochronny", "Kategoria": "BHP", "Ilość": 10, "Zaznacz": False},
+    ]
 
-# --- INICJALIZACJA STANU ---
-if 'magazyn' not in st.session_state:
-    st.session_state['magazyn'] = ["Wiertarka", "Śruby M8", "Rękawice robocze", "Czapka Mikołaja"]
+# --- SIDEBAR: PANEL STEROWANIA ---
+with st.sidebar:
+    st.header("➕ Dodaj towar")
+    with st.form("add_form", clear_on_submit=True):
+        new_name = st.text_input("Nazwa produktu")
+        new_cat = st.selectbox("Kategoria", ["Narzędzia", "Elektronika", "Akcesoria", "BHP", "Inne"])
+        new_qty = st.number_input("Ilość", min_value=1, value=1)
+        submitted = st.form_submit_button("Zapisz w magazynie")
+        
+        if submitted and new_name:
+            new_item = {"Produkt": new_name, "Kategoria": new_cat, "Ilość": new_qty, "Zaznacz": False}
+            st.session_state['data'].append(new_item)
+            st.success("Dodano!")
+            st.rerun()
 
-# --- FUNKCJE POMOCNICZE ---
-def pobierz_dane_txt():
-    return "\n".join(st.session_state['magazyn'])
+    st.markdown("---")
+    st.info("💡 Wskazówka: Możesz edytować ilość sztuk bezpośrednio w głównej tabeli!")
 
-# ==========================================
-# 📊 SEKCJA 0: DASHBOARD (STATYSTYKI) - TO JEST NOWOŚĆ
-# ==========================================
-st.markdown("### 📊 Statystyki")
+# --- GŁÓWNA STRONA ---
+st.title("🏭 Centrum Zarządzania Magazynem")
+
+# Konwersja listy do DataFrame (tabeli)
+df = pd.DataFrame(st.session_state['data'])
+
+# --- PANEL STATYSTYK ---
 col1, col2, col3 = st.columns(3)
+total_items = df['Ilość'].sum()
+unique_items = len(df)
+top_category = df['Kategoria'].mode()[0] if not df.empty else "Brak"
 
-ilosc_towarow = len(st.session_state['magazyn'])
-ostatni_towar = st.session_state['magazyn'][-1] if ilosc_towarow > 0 else "Brak"
+col1.metric("📦 Łącznie sztuk", total_items)
+col2.metric("📝 Unikalne produkty", unique_items)
+col3.metric("🏆 Główna kategoria", top_category)
 
-col1.metric("Liczba produktów", ilosc_towarow, delta=None)
-col2.metric("Ostatnio dodany", ostatni_towar)
-# Przycisk pobierania listy
-col3.download_button(
-    label="📥 Pobierz listę (TXT)",
-    data=pobierz_dane_txt(),
-    file_name="stan_magazynu.txt",
-    mime="text/plain"
+st.markdown("---")
+
+# --- INTERAKTYWNA TABELA (DATA EDITOR) ---
+st.subheader("📋 Stan magazynowy")
+
+# st.data_editor pozwala użytkownikowi zmieniać dane w tabeli!
+edited_df = st.data_editor(
+    df,
+    column_config={
+        "Ilość": st.column_config.NumberColumn(
+            "Ilość sztuk",
+            help="Ile mamy tego na stanie?",
+            min_value=0,
+            step=1,
+            format="%d 📦", # Dodaje ikonkę pudełka do liczb
+        ),
+        "Kategoria": st.column_config.SelectboxColumn(
+            "Kategoria",
+            options=["Narzędzia", "Elektronika", "Akcesoria", "BHP", "Inne"],
+            required=True,
+        ),
+        "Zaznacz": st.column_config.CheckboxColumn(
+            "Usuń?",
+            help="Zaznacz, aby usunąć ten wiersz",
+            default=False,
+        )
+    },
+    hide_index=True,
+    use_container_width=True,
+    num_rows="dynamic" # Pozwala dodawać nowe wiersze na dole
 )
 
-st.markdown("---")
-
-# ==========================================
-# 🔎 SEKCJA 1: WYŚWIETLANIE I WYSZUKIWANIE
-# ==========================================
-st.header("📋 Stan magazynu")
-
-# Wyszukiwarka
-szukana_fraza = st.text_input("🔍 Szukaj towaru...", placeholder="Wpisz nazwę...")
-
-if st.session_state['magazyn']:
-    # Filtrowanie listy
-    if szukana_fraza:
-        lista_do_wyswietlenia = [t for t in st.session_state['magazyn'] if szukana_fraza.lower() in t.lower()]
-    else:
-        lista_do_wyswietlenia = st.session_state['magazyn']
+# --- AKTUALIZACJA DANYCH ---
+# Sprawdzamy, czy dane w tabeli różnią się od tych w sesji
+# Jeśli tak, aktualizujemy sesję
+if not edited_df.equals(df):
+    # Filtrujemy usunięte (te gdzie Zaznacz == True) - to prosty sposób na usuwanie
+    # Ale st.data_editor ma też wbudowane usuwanie wierszy, tutaj używamy kolumny "Zaznacz" jako przykładu
+    tabela_po_usunieciu = edited_df[edited_df["Zaznacz"] == False].drop(columns=["Zaznacz"])
     
-    # Wyświetlanie w ładniejszy sposób (kontener)
-    if lista_do_wyswietlenia:
-        for idx, towar in enumerate(lista_do_wyswietlenia, 1):
-            st.text(f"{idx}. {towar}")
-    else:
-        st.info("Nie znaleziono towaru o takiej nazwie.")
-else:
-    st.info("Magazyn jest pusty. Dodaj pierwszy towar!")
-
-st.markdown("---")
-
-# ==========================================
-# ➕ SEKCJA 2: DODAWANIE TOWARU
-# ==========================================
-st.header("➕ Dodaj nowy towar")
-
-with st.form("dodaj_formularz", clear_on_submit=True):
-    nowy_towar = st.text_input("Wpisz nazwę towaru")
-    cols = st.columns([1, 4]) # Układ przycisku
-    dodaj_przycisk = cols[0].form_submit_button("Dodaj")
+    # Dodajemy kolumnę Zaznacz z powrotem jako False dla przyszłych edycji
+    tabela_po_usunieciu["Zaznacz"] = False
     
-    if dodaj_przycisk:
-        if nowy_towar.strip():
-            st.session_state['magazyn'].append(nowy_towar.strip())
-            st.success(f"Dodano: **{nowy_towar.strip()}**")
-            # Efekt śniegu przy sukcesie! ❄️
-            st.snow() 
-            time.sleep(1) # Krótka pauza żeby zobaczyć komunikat przed odświeżeniem
-            st.rerun() 
-        else:
-            st.warning("Nazwa towaru nie może być pusta.")
+    # Zapisujemy do sesji
+    st.session_state['data'] = tabela_po_usunieciu.to_dict('records')
+    st.rerun()
+
+# --- USUWANIE ZAZNACZONYCH (Przycisk pod tabelą) ---
+# Jeśli ktoś zaznaczył "ptaszki" w kolumnie "Usuń?", ten przycisk wykona akcję
+items_to_delete = edited_df[edited_df["Zaznacz"] == True]
+if not items_to_delete.empty:
+    if st.button(f"🗑️ Usuń zaznaczone ({len(items_to_delete)})", type="primary"):
+        # Logika usuwania
+        clean_df = edited_df[edited_df["Zaznacz"] == False]
+        st.session_state['data'] = clean_df.to_dict('records')
+        st.rerun()
 
 st.markdown("---")
 
-# ==========================================
-# ❌ SEKCJA 3: USUWANIE TOWARU
-# ==========================================
-st.header("❌ Usuń towar")
-
-if st.session_state['magazyn']:
-    with st.expander("Rozwiń, aby usunąć towar"): # Ukrywamy to w rozwijanym panelu, żeby było czyściej
-        towar_do_usuniecia = st.selectbox(
-            "Wybierz towar do usunięcia",
-            st.session_state['magazyn'],
-            key="select_usun"
-        )
-
-        if st.button("Usuń wybrany towar", type="primary"): # type="primary" robi czerwony/główny przycisk
-            st.session_state['magazyn'].remove(towar_do_usuniecia)
-            st.toast(f"Usunięto: {towar_do_usuniecia}", icon="🗑️") # Toast to małe powiadomienie w rogu
-            time.sleep(1)
-            st.rerun()
-else:
-    st.write("Brak towarów do usunięcia.")
+# --- WYKRESY ---
+if not df.empty:
+    st.subheader("📊 Analiza kategorii")
+    # Grupujemy dane po kategorii, żeby zobaczyć ile sztuk jest w każdej
+    chart_data = df.groupby("Kategoria")["Ilość"].sum()
+    st.bar_chart(chart_data)
